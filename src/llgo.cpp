@@ -385,7 +385,8 @@ namespace llgo
  * In an Unity-Build symbols often get removed, if they are 
  * not visible inside the translation unit.
  */
-[[maybe_unused]] void prevent_dce_full_pipeline() {
+[[maybe_unused]] void prevent_dce_full_pipeline() 
+{
     static volatile int force_keep = 0;
     if (force_keep == 0) return;
 
@@ -415,7 +416,8 @@ namespace llgo
     llgo::codegen::MachORISCV32Codegen macho_rv32;
 
     // Dummy-use to prevent compiler warnings
-    if (force_keep < 0) {
+    if (force_keep < 0) 
+    {
         llgo::codegen::ObjectFile obj;
         elf_x64.generate({}, "", obj);
         pe_x64.generate({}, "", obj);
