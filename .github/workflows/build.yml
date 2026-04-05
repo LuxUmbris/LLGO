@@ -7,6 +7,7 @@ jobs:
     name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
 
@@ -24,10 +25,19 @@ jobs:
       - name: Build
         run: cmake --build build --config Release
 
+      # Optionaler Debug-Schritt, falls wieder Probleme auftreten
+      - name: List files (Debug)
+        shell: bash
+        run: |
+          echo "Checking for generated library files:"
+          find build -name "*.a" -o -name "*.lib" -ls
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: libllgo-${{ matrix.os }}
           path: |
-            build/**/*.a
-            build/**/*.lib
+            build/libllgo.a
+            build/llgo.lib
+            build/Release/llgo.lib
+          if-no-files-found: error
