@@ -4,13 +4,10 @@ project(llgo LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# -------------------------------------------------------
-# Static library (unity build: one TU)
-# -------------------------------------------------------
+if(NOT MSVC)
+    set(CMAKE_CXX_ARCHIVE_CREATE "<CMAKE_AR> rcs <TARGET> <LINK_FLAGS> <OBJECTS>")
+    set(CMAKE_CXX_ARCHIVE_FINISH "")
+endif()
+
 add_library(llgo STATIC src/llgo.cpp)
 target_include_directories(llgo PUBLIC src)
-target_compile_options(llgo PRIVATE
-    $<$<CXX_COMPILER_ID:GNU,Clang>:
-        -Wall -Wextra
-        -Wno-unused-parameter
-        -Wno-missing-field-initializers>)
