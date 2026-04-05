@@ -25,12 +25,20 @@ jobs:
       - name: Build
         run: cmake --build build --config Release
 
-      # Optionaler Debug-Schritt, falls wieder Probleme auftreten
-      - name: List files (Debug)
+      - name: Verify Library Size and Type
         shell: bash
         run: |
-          echo "Checking for generated library files:"
-          find build -name "*.a" -o -name "*.lib" -ls
+          echo "Suche nach Library-Dateien..."
+          # Findet .a oder .lib Dateien und gibt Details aus
+          FILES=$(find build -name "*.a" -o -name "*.lib")
+          for f in $FILES; do
+            echo "Datei gefunden: $f"
+            ls -lh "$f"
+            # Prüfen, ob es ein Thin Archive ist (nur Linux/macOS)
+            if [[ "$f" == *.a ]]; then
+              head -c 7 "$f" | grep -q "thin" && echo "WARNUNG: Dies ist ein Thin Archive!" || echo "Check: Valides Archiv."
+            fi
+          done
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
