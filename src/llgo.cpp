@@ -117,7 +117,7 @@ namespace llgo
     //   if (!res.ok) { /* handle res.error */ }
     //   // write res.objectData to a .o file or pass to a linker
     // =========================================================================
-    inline CompileResult compile(const frontend::Module& module,
+    CompileResult compile(const frontend::Module& module,
                                  const CompileOptions& opts = {})
     {
         CompileResult result;
@@ -302,7 +302,7 @@ namespace llgo
     // Convenience wrapper: compile and write the object file to disk.
     // Returns true on success, false + error message on failure.
     // =========================================================================
-    inline bool compileToFile(const frontend::Module& module,
+    bool compileToFile(const frontend::Module& module,
                               const std::string& path,
                               const CompileOptions& opts,
                               std::string& errorOut)
@@ -342,7 +342,7 @@ namespace llgo
     // Parse CLI-style strings into enum values.
     // Returns false if the string is unrecognised.
     // =========================================================================
-    inline bool archFromString(const std::string& s, Arch& out)
+    bool archFromString(const std::string& s, Arch& out)
     {
         if (s == "x86_64"  || s == "x86-64")   { out = Arch::X86_64;  return true; }
         if (s == "arm64"   || s == "aarch64")   { out = Arch::ARM64;   return true; }
@@ -351,7 +351,7 @@ namespace llgo
         return false;
     }
 
-    inline bool formatFromString(const std::string& s, Format& out)
+    bool formatFromString(const std::string& s, Format& out)
     {
         if (s == "elf")   { out = Format::ELF;   return true; }
         if (s == "pe"   || s == "coff") { out = Format::PE;    return true; }
@@ -375,7 +375,7 @@ namespace llgo
     //
     // Returns a human-readable version string.
     // =========================================================================
-    inline const char* version()
+    const char* version()
     {
         return "LLGO 1.0.0";
     }
