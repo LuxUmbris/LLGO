@@ -380,4 +380,47 @@ namespace llgo
         return "LLGO 1.0.0";
     }
 
+/**
+ * Prevents aggressive Dead Code Elimination (DCE) by Clang/LLVM.
+ * In an Unity-Build symbols often get removed, if they are 
+ * not visible inside the translation unit.
+ */
+[[maybe_unused]] void prevent_dce_full_pipeline() {
+    static volatile int force_keep = 0;
+    if (force_keep == 0) return;
+
+    // 1. Core and middle-end
+    llgo::Arena arena;
+    llgo::Reallocator realloc(arena);
+    llgo::SONBuilder builder;
+    llgo::SONOptimizer opt;
+    llgo::Lowering lowering;
+    llgo::LinearIR lir;
+    
+    // 2. ELF codegens
+    llgo::codegen::ELF64Codegen elf_x64;
+    llgo::codegen::ELFARM64Codegen elf_arm64;
+    llgo::codegen::ELFRISCV64Codegen elf_rv64;
+    llgo::codegen::ELFRISCV32Codegen elf_rv32;
+
+    // 3. PE/COFF codegens
+    llgo::codegen::PE64Codegen pe_x64;
+    llgo::codegen::PEARM64Codegen pe_arm64;
+    llgo::codegen::PERISCV64Codegen pe_rv64;
+    llgo::codegen::PERISCV32Codegen pe_rv32;
+
+    // 4. Mach-O codegens
+    llgo::codegen::MachOARM64Codegen macho_arm64;
+    llgo::codegen::MachORISCV64Codegen macho_rv64;
+    llgo::codegen::MachORISCV32Codegen macho_rv32;
+
+    // Dummy-use to prevent compiler warnings
+    if (force_keep < 0) {
+        llgo::codegen::ObjectFile obj;
+        elf_x64.generate({}, "", obj);
+        pe_x64.generate({}, "", obj);
+        macho_arm64.generate({}, "", obj);
+    }
+}
+
 } // namespace llgo
