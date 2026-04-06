@@ -1,6 +1,5 @@
 /* LLGO – Unity Build Entry Point */
 
-#pragma once
 #include <cstdio>
 #include <cstdint>
 #include <string>
