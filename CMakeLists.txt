@@ -11,13 +11,8 @@ endif()
 
 add_library(llgo STATIC
     src/llgo.cpp
-    src/frontend.hpp
-    src/son_builder.hpp
-    src/optimizer.hpp
-    src/alloc.hpp
-    src/realloc.hpp
-    src/lowering.hpp
     src/llgo_api.hpp
 )
 target_include_directories(llgo PUBLIC src)
+
 
