@@ -6,6 +6,7 @@
 #include <vector>
 #include <unordered_map>
 #include <cstdint>
+#include <cctype>
 
 namespace llgo
 {
@@ -77,6 +78,27 @@ namespace llgo
         std::string m_currentBlock;
         std::uint32_t m_nextId = 0;
 
+        static bool isIntegerLiteral(const std::string& s)
+        {
+            if (s.empty())
+                return false;
+
+            std::size_t i = 0;
+            if (s[0] == '-' || s[0] == '+')
+            {
+                if (s.size() == 1)
+                    return false;
+                i = 1;
+            }
+
+            for (; i < s.size(); ++i)
+            {
+                if (!std::isdigit(static_cast<unsigned char>(s[i])))
+                    return false;
+            }
+            return true;
+        }
+
         void buildFunction(const frontend::Function& fn)
         {
             Node* pStart = createNode(NodeKind::Start, fn.returnType, fn.name);
@@ -84,11 +106,11 @@ namespace llgo
             m_controlMap[fn.name + ".entry"] = pStart;
             m_pCurrentMemory = pStart;
 
+            // Parameters: keep current contract (all mapped to Start)
             for (const auto& param : fn.params)
             {
                 if (!param.name.empty())
                 {
-                    // Kompatibel: Params weiter auf Start mappen
                     m_valueMap[param.name] = pStart;
                 }
             }
@@ -114,6 +136,15 @@ namespace llgo
 
         void buildInstr(const frontend::Instr& instr)
         {
+            // Explicit Const* instructions are not part of the intended frontend contract.
+            // Ignore them defensively instead of letting later passes crash.
+            if (instr.kind == frontend::InstrKind::ConstInt ||
+                instr.kind == frontend::InstrKind::ConstFloat ||
+                instr.kind == frontend::InstrKind::ConstString)
+            {
+                return;
+            }
+
             NodeKind kind = mapInstrKind(instr.kind);
             Node* pNode = createNode(kind, instr.resultType, instr.resultName);
 
@@ -125,6 +156,8 @@ namespace llgo
                 {
                     pNode->inputs.push_back(pSrc);
                 }
+                // If not found and not a literal, we simply skip.
+                // Contract: frontend must not reference SSA values before they are defined.
             }
 
             // Control edge
@@ -145,7 +178,7 @@ namespace llgo
                 }
             }
 
-            // Memory edge
+            // Memory edge: explicit + implicit tokens
             Node* pMemInput = nullptr;
 
             if (!instr.memory.empty())
@@ -164,6 +197,7 @@ namespace llgo
                 pNode->inputs.push_back(pMemInput);
             }
 
+            // If instruction changes memory state, update current memory and optionally name it
             if (instr.kind == frontend::InstrKind::Load ||
                 instr.kind == frontend::InstrKind::Store ||
                 instr.kind == frontend::InstrKind::Call)
@@ -221,11 +255,27 @@ namespace llgo
 
         Node* resolveValue(const frontend::Value& v)
         {
+            // First try SSA value
             auto it = m_valueMap.find(v.name);
             if (it != m_valueMap.end())
             {
                 return it->second;
             }
+
+            // Then treat plain integer literals as implicit ConstInt nodes
+            if (isIntegerLiteral(v.name))
+            {
+                auto litIt = m_valueMap.find("$const.int." + v.name);
+                if (litIt != m_valueMap.end())
+                {
+                    return litIt->second;
+                }
+
+                Node* pConst = createNode(NodeKind::ConstInt, v.type, v.name);
+                m_valueMap["$const.int." + v.name] = pConst;
+                return pConst;
+            }
+
             return nullptr;
         }
 
@@ -286,4 +336,4 @@ namespace llgo
             return NodeKind::Undef;
         }
     };
-} //namespace llgo
+} // namespace llgo
