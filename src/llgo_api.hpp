@@ -4,219 +4,216 @@
 #include <cstddef>
 #include <cstdint>
 
-// -----------------------------------------------------------------
-// C API – usable from any language with a C FFI.
-// All pointers returned are owned by LLGO and freed via the
-// corresponding llgo_*_free() function.
-// -----------------------------------------------------------------
-
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-// -------------------------------------------------------
-// Opaque handles
-// -------------------------------------------------------
-typedef struct LLGOModule_   LLGOModule;
-typedef struct LLGOFunction_ LLGOFunction;
-typedef struct LLGOBlock_    LLGOBlock;
-typedef struct LLGOResult_   LLGOResult;
-
-// -------------------------------------------------------
-// Target architecture
-// -------------------------------------------------------
-typedef enum LLGOArch
-{
-    LLGO_ARCH_X86_64   = 0,
-    LLGO_ARCH_ARM64    = 1,
-    LLGO_ARCH_RISCV64  = 2,
-    LLGO_ARCH_RISCV32  = 3
+// C ABI enums
+typedef enum LLGOArch {
+    LLGO_ARCH_X86_64 = 0,
+    LLGO_ARCH_ARM64  = 1,
+    LLGO_ARCH_RISCV64 = 2,
+    LLGO_ARCH_RISCV32 = 3
 } LLGOArch;
 
-// -------------------------------------------------------
-// Object-file format
-// -------------------------------------------------------
-typedef enum LLGOFormat
-{
+typedef enum LLGOFormat {
     LLGO_FMT_ELF   = 0,
     LLGO_FMT_PE    = 1,
     LLGO_FMT_MACHO = 2
 } LLGOFormat;
 
-// -------------------------------------------------------
-// Optimisation level
-// -------------------------------------------------------
-typedef enum LLGOOptLevel
-{
-    LLGO_OPT_NONE = 0,
-    LLGO_OPT_O1   = 1,
-    LLGO_OPT_O2   = 2
+typedef enum LLGOOptLevel {
+    LLGO_OPT_O0 = 0,
+    LLGO_OPT_O1 = 1,
+    LLGO_OPT_O2 = 2
 } LLGOOptLevel;
 
-// -------------------------------------------------------
-// Value types (mirrors frontend::Type)
-// -------------------------------------------------------
-typedef enum LLGOType
-{
-    LLGO_TYPE_I2   = 0,
-    LLGO_TYPE_I4,
-    LLGO_TYPE_I8,
-    LLGO_TYPE_I16,
-    LLGO_TYPE_I32,
-    LLGO_TYPE_I64,
-    LLGO_TYPE_I128,
-    LLGO_TYPE_I256,
-    LLGO_TYPE_U1,
-    LLGO_TYPE_U2,
-    LLGO_TYPE_U4,
-    LLGO_TYPE_U8,
-    LLGO_TYPE_U16,
-    LLGO_TYPE_U32,
-    LLGO_TYPE_U64,
-    LLGO_TYPE_U128,
-    LLGO_TYPE_U256,
-    LLGO_TYPE_CONST_U8,
-    LLGO_TYPE_BOOLEAN,
-    LLGO_TYPE_ARR,
-    LLGO_TYPE_PTR
-} LLGOType;
-
-// -------------------------------------------------------
-// Instruction kinds (mirrors frontend::InstrKind)
-// -------------------------------------------------------
-typedef enum LLGOInstrKind
-{
-    LLGO_INSTR_ADD = 0,
-    LLGO_INSTR_SUB,
-    LLGO_INSTR_MUL,
-    LLGO_INSTR_DIV,
-    LLGO_INSTR_MOD,
-    LLGO_INSTR_ICMP,
-    LLGO_INSTR_FCMP,
-    LLGO_INSTR_LOAD,
-    LLGO_INSTR_STORE,
-    LLGO_INSTR_GEP,
-    LLGO_INSTR_PHI,
-    LLGO_INSTR_BR,
-    LLGO_INSTR_CONDBR,
-    LLGO_INSTR_RET,
-    LLGO_INSTR_CALL,
-    LLGO_INSTR_CONST_INT,
-    LLGO_INSTR_CONST_FLOAT,
-    LLGO_INSTR_CONST_STRING,
-    LLGO_INSTR_UNDEF
-} LLGOInstrKind;
-
-// -------------------------------------------------------
-// Compile options
-// -------------------------------------------------------
-typedef struct LLGOCompileOptions
-{
-    LLGOArch      arch;
-    LLGOFormat    format;
-    LLGOOptLevel  optLevel;
-    const char*   symbolName; // exported function name; NULL → "main"
+// C ABI compile options (POD)
+typedef struct LLGOCompileOptions {
+    LLGOArch     arch;
+    LLGOFormat   format;
+    LLGOOptLevel optLevel;
+    const char*  symbolName; // NULL → "main"
 } LLGOCompileOptions;
 
-// -------------------------------------------------------
-// Result (compiled object file bytes)
-// -------------------------------------------------------
+// C ABI compile result (POD)
+typedef struct LLGOResult {
+    int            ok;     // nonzero = success
+    const char*    error;  // NULL if ok != 0
+    const uint8_t* data;   // object file bytes
+    std::size_t    size;   // length of data
+} LLGOResult;
 
-// Returns the number of bytes in the compiled object file.
-std::size_t llgo_result_size(const LLGOResult* result);
+// C ABI functions
+LLGOResult llgo_compile_c(const void* module,
+                          const LLGOCompileOptions* opts);
 
-// Returns a pointer to the object file bytes (valid until llgo_result_free).
-const std::uint8_t* llgo_result_data(const LLGOResult* result);
+int llgo_compile_to_file_c(const void* module,
+                           const char* path,
+                           const LLGOCompileOptions* opts,
+                           const char** errorOut);
 
-// Frees a compile result.
-void llgo_result_free(LLGOResult* result);
+void llgo_result_free_c(LLGOResult* result);
 
-// -------------------------------------------------------
-// Module construction
-// -------------------------------------------------------
+int llgo_arch_from_string_c(const char* s, LLGOArch* out);
+int llgo_format_from_string_c(const char* s, LLGOFormat* out);
+int llgo_opt_level_from_int_c(int n, LLGOOptLevel* out);
 
-// Creates a new, empty module.
-LLGOModule* llgo_module_create(void);
+const char* llgo_version_c(void);
 
-// Frees a module and all its contents.
-void llgo_module_free(LLGOModule* module);
-
-// -------------------------------------------------------
-// Function construction
-// -------------------------------------------------------
-
-// Appends a new function to the module.
-// returnType:  LLGO_TYPE_* constant
-// name:        null-terminated symbol name
-LLGOFunction* llgo_function_create(LLGOModule*  module,
-                                   LLGOType     returnType,
-                                   const char*  name);
-
-// Appends a parameter (SSA value) to the function.
-void llgo_function_add_param(LLGOFunction* function,
-                             LLGOType      type,
-                             const char*   name);
-
-// -------------------------------------------------------
-// Block construction
-// -------------------------------------------------------
-
-// Appends a new basic block to the function.
-LLGOBlock* llgo_block_create(LLGOFunction* function,
-                             const char*   name);
-
-// -------------------------------------------------------
-// Instruction construction
-// -------------------------------------------------------
-
-// Appends an instruction to the block.
-//
-// resultName:   SSA name for the produced value ("" if none)
-// resultType:   type of the produced value
-// kind:         LLGO_INSTR_* constant
-// operandNames: array of SSA operand names
-// numOperands:  length of operandNames
-// control:      control dependency name ("" for implicit)
-// memory:       memory dependency name  ("" for implicit)
-// targetTrue:   branch target (CondBr true  / Br target)
-// targetFalse:  branch target (CondBr false)
-void llgo_block_append_instr(LLGOBlock*    block,
-                             const char*   resultName,
-                             LLGOType      resultType,
-                             LLGOInstrKind kind,
-                             const char**  operandNames,
-                             std::size_t   numOperands,
-                             const char*   control,
-                             const char*   memory,
-                             const char*   targetTrue,
-                             const char*   targetFalse);
-
-// -------------------------------------------------------
-// Compilation
-// -------------------------------------------------------
-
-// Compiles the module to a native object file.
-// Returns NULL on failure (e.g. unsupported arch/format combination).
-LLGOResult* llgo_compile(const LLGOModule*          module,
-                         const LLGOCompileOptions*  options);
-
-// -------------------------------------------------------
-// Convenience: single-shot compile from a pre-built
-// frontend::Module (C++ only, not exposed as C)
-// -------------------------------------------------------
 #ifdef __cplusplus
 } // extern "C"
+#endif
 
+
+// ============================================================================
+// C++ API (header‑inline, not part of shared ABI)
+// ============================================================================
+
+#ifdef __cplusplus
+
+#include <string>
+#include <vector>
 #include "frontend.hpp"
 
 namespace llgo
 {
-    // Returns object-file bytes or empty vector on failure.
-    std::vector<std::uint8_t> compile(const frontend::Module& module,
-                                      LLGOArch     arch,
-                                      LLGOFormat   format,
-                                      LLGOOptLevel optLevel,
-                                      const std::string& symbolName = "main");
-}
+    enum class Arch { X86_64, ARM64, RISCV64, RISCV32 };
+    enum class Format { ELF, PE, MachO };
+    enum class OptLevel { O0, O1, O2 };
+
+    struct CompileOptions {
+        Arch        arch = Arch::X86_64;
+        Format      fmt  = Format::ELF;
+        OptLevel    opt  = OptLevel::O1;
+        std::string symbolName = "main";
+    };
+
+    struct CompileResult {
+        bool                      ok = false;
+        std::string               error;
+        std::vector<std::uint8_t> objectData;
+    };
+
+    // enum mapping helpers
+    inline LLGOArch toC(Arch a) {
+        switch (a) {
+            case Arch::X86_64: return LLGO_ARCH_X86_64;
+            case Arch::ARM64:  return LLGO_ARCH_ARM64;
+            case Arch::RISCV64:return LLGO_ARCH_RISCV64;
+            case Arch::RISCV32:return LLGO_ARCH_RISCV32;
+        }
+        return LLGO_ARCH_X86_64;
+    }
+
+    inline LLGOFormat toC(Format f) {
+        switch (f) {
+            case Format::ELF:   return LLGO_FMT_ELF;
+            case Format::PE:    return LLGO_FMT_PE;
+            case Format::MachO: return LLGO_FMT_MACHO;
+        }
+        return LLGO_FMT_ELF;
+    }
+
+    inline LLGOOptLevel toC(OptLevel o) {
+        switch (o) {
+            case OptLevel::O0: return LLGO_OPT_O0;
+            case OptLevel::O1: return LLGO_OPT_O1;
+            case OptLevel::O2: return LLGO_OPT_O2;
+        }
+        return LLGO_OPT_O1;
+    }
+
+    // C++ wrapper around C ABI
+    inline CompileResult compile(const frontend::Module& module,
+                                 const CompileOptions& opts = {})
+    {
+        LLGOCompileOptions cOpts;
+        cOpts.arch       = toC(opts.arch);
+        cOpts.format     = toC(opts.fmt);
+        cOpts.optLevel   = toC(opts.opt);
+        cOpts.symbolName = opts.symbolName.empty()
+                           ? nullptr
+                           : opts.symbolName.c_str();
+
+        LLGOResult cRes = llgo_compile_c(&module, &cOpts);
+
+        CompileResult out;
+        out.ok = (cRes.ok != 0);
+
+        if (!out.ok) {
+            out.error = cRes.error ? cRes.error : "unknown error";
+        } else if (cRes.data && cRes.size > 0) {
+            out.objectData.assign(cRes.data, cRes.data + cRes.size);
+        }
+
+        llgo_result_free_c(&cRes);
+        return out;
+    }
+
+    inline bool compileToFile(const frontend::Module& module,
+                              const std::string& path,
+                              const CompileOptions& opts,
+                              std::string& errorOut)
+    {
+        LLGOCompileOptions cOpts;
+        cOpts.arch       = toC(opts.arch);
+        cOpts.format     = toC(opts.fmt);
+        cOpts.optLevel   = toC(opts.opt);
+        cOpts.symbolName = opts.symbolName.empty()
+                           ? nullptr
+                           : opts.symbolName.c_str();
+
+        const char* err = nullptr;
+        int ok = llgo_compile_to_file_c(&module, path.c_str(), &cOpts, &err);
+
+        if (!ok) {
+            errorOut = err ? err : "unknown error";
+            return false;
+        }
+        return true;
+    }
+
+    inline bool archFromString(const std::string& s, Arch& out) {
+        LLGOArch a;
+        if (!llgo_arch_from_string_c(s.c_str(), &a)) return false;
+        switch (a) {
+            case LLGO_ARCH_X86_64: out = Arch::X86_64; break;
+            case LLGO_ARCH_ARM64:  out = Arch::ARM64;  break;
+            case LLGO_ARCH_RISCV64:out = Arch::RISCV64;break;
+            case LLGO_ARCH_RISCV32:out = Arch::RISCV32;break;
+        }
+        return true;
+    }
+
+    inline bool formatFromString(const std::string& s, Format& out) {
+        LLGOFormat f;
+        if (!llgo_format_from_string_c(s.c_str(), &f)) return false;
+        switch (f) {
+            case LLGO_FMT_ELF:   out = Format::ELF;   break;
+            case LLGO_FMT_PE:    out = Format::PE;    break;
+            case LLGO_FMT_MACHO: out = Format::MachO; break;
+        }
+        return true;
+    }
+
+    inline bool optLevelFromInt(int n, OptLevel& out) {
+        LLGOOptLevel o;
+        if (!llgo_opt_level_from_int_c(n, &o)) return false;
+        switch (o) {
+            case LLGO_OPT_O0: out = OptLevel::O0; break;
+            case LLGO_OPT_O1: out = OptLevel::O1; break;
+            case LLGO_OPT_O2: out = OptLevel::O2; break;
+        }
+        return true;
+    }
+
+    inline const char* version() {
+        return llgo_version_c();
+    }
+
+    [[maybe_unused]] void prevent_dce_full_pipeline();
+
+} // namespace llgo
 
 #endif // __cplusplus
