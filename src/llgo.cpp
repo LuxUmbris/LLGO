@@ -6,6 +6,9 @@
 #include <vector>
 #include <exception>
 
+// Public API header (C + C++ API declarations)
+#include "llgo_api.hpp"
+
 // ---- Pipeline headers (order matters) ----------------------------------------
 #include "frontend.hpp"
 #include "son_builder.hpp"
@@ -39,95 +42,67 @@
 
 namespace llgo
 {
-    enum class Arch
-    {
-        X86_64,
-        ARM64,
-        RISCV64,
-        RISCV32
-    };
-
-    enum class Format
-    {
-        ELF,
-        PE,
-        MachO
-    };
-
-    enum class OptLevel
-    {
-        O0,
-        O1,
-        O2
-    };
-
-    struct CompileOptions
-    {
-        Arch        arch       = Arch::X86_64;
-        Format      fmt        = Format::ELF;
-        OptLevel    opt        = OptLevel::O1;
-        std::string symbolName = "main";
-    };
-
-    struct CompileResult
-    {
-        bool                      ok        = false;
-        std::string               error;
-        std::vector<std::uint8_t> objectData;
-    };
-
-    CompileResult compile(const frontend::Module& module,
-                          const CompileOptions&   opts)
+    // -------------------------------------------------------------------------
+    // Internal C++ compile implementation (used by C API wrapper)
+    // -------------------------------------------------------------------------
+    CompileResult compile_internal(const frontend::Module& module,
+                                   Arch                    arch,
+                                   Format                  fmt,
+                                   OptLevel                opt,
+                                   const std::string&      symbolName)
     {
         CompileResult result;
 
         try
         {
+            // Build SoN graph
             SONBuilder builder;
             builder.build(module);
             Graph graph = builder.getGraph();
 
-            if (opts.opt != OptLevel::O0)
+            // Optimizer
+            if (opt != OptLevel::O0)
             {
                 SONOptimizer optimizer;
                 optimizer.run(graph);
             }
 
+            // Arena
             Arena arena;
-            (void)arena;
 
+            // Lowering
             LinearIR linearIR;
             Lowering lowering;
             lowering.run(graph, linearIR);
 
+            // Reallocator
             Reallocator realloc(arena);
-            (void)realloc;
 
+            // Codegen
             codegen::ObjectFile objFile;
 
-            switch (opts.arch)
+            switch (arch)
             {
                 case Arch::X86_64:
                 {
-                    switch (opts.fmt)
+                    switch (fmt)
                     {
                         case Format::ELF:
                         {
                             codegen::ELF64Codegen cg;
-                            cg.generate(linearIR, opts.symbolName, objFile);
+                            cg.generate(linearIR, symbolName, objFile);
                             break;
                         }
                         case Format::PE:
                         {
                             codegen::PE64Codegen cg;
-                            cg.generate(linearIR, opts.symbolName, objFile);
+                            cg.generate(linearIR, symbolName, objFile);
                             break;
                         }
                         case Format::MachO:
                         {
                             result.error =
-                                "x86-64 Mach-O not yet implemented; "
-                                "use ELF or PE for x86-64";
+                                "x86-64 Mach-O not implemented";
                             return result;
                         }
                     }
@@ -136,24 +111,24 @@ namespace llgo
 
                 case Arch::ARM64:
                 {
-                    switch (opts.fmt)
+                    switch (fmt)
                     {
                         case Format::ELF:
                         {
                             codegen::ELFARM64Codegen cg;
-                            cg.generate(linearIR, opts.symbolName, objFile);
+                            cg.generate(linearIR, symbolName, objFile);
                             break;
                         }
                         case Format::PE:
                         {
                             codegen::PEARM64Codegen cg;
-                            cg.generate(linearIR, opts.symbolName, objFile);
+                            cg.generate(linearIR, symbolName, objFile);
                             break;
                         }
                         case Format::MachO:
                         {
                             codegen::MachOARM64Codegen cg;
-                            cg.generate(linearIR, opts.symbolName, objFile);
+                            cg.generate(linearIR, symbolName, objFile);
                             break;
                         }
                     }
@@ -162,24 +137,24 @@ namespace llgo
 
                 case Arch::RISCV64:
                 {
-                    switch (opts.fmt)
+                    switch (fmt)
                     {
                         case Format::ELF:
                         {
                             codegen::ELFRISCV64Codegen cg;
-                            cg.generate(linearIR, opts.symbolName, objFile);
+                            cg.generate(linearIR, symbolName, objFile);
                             break;
                         }
                         case Format::PE:
                         {
                             codegen::PERISCV64Codegen cg;
-                            cg.generate(linearIR, opts.symbolName, objFile);
+                            cg.generate(linearIR, symbolName, objFile);
                             break;
                         }
                         case Format::MachO:
                         {
                             codegen::MachORISCV64Codegen cg;
-                            cg.generate(linearIR, opts.symbolName, objFile);
+                            cg.generate(linearIR, symbolName, objFile);
                             break;
                         }
                     }
@@ -188,24 +163,24 @@ namespace llgo
 
                 case Arch::RISCV32:
                 {
-                    switch (opts.fmt)
+                    switch (fmt)
                     {
                         case Format::ELF:
                         {
                             codegen::ELFRISCV32Codegen cg;
-                            cg.generate(linearIR, opts.symbolName, objFile);
+                            cg.generate(linearIR, symbolName, objFile);
                             break;
                         }
                         case Format::PE:
                         {
                             codegen::PERISCV32Codegen cg;
-                            cg.generate(linearIR, opts.symbolName, objFile);
+                            cg.generate(linearIR, symbolName, objFile);
                             break;
                         }
                         case Format::MachO:
                         {
                             codegen::MachORISCV32Codegen cg;
-                            cg.generate(linearIR, opts.symbolName, objFile);
+                            cg.generate(linearIR, symbolName, objFile);
                             break;
                         }
                     }
@@ -224,112 +199,164 @@ namespace llgo
         catch (...)
         {
             result.ok    = false;
-            result.error = "unknown error during compilation";
+            result.error = "unknown error";
         }
 
         return result;
     }
 
-    bool compileToFile(const frontend::Module& module,
-                       const std::string&      path,
-                       const CompileOptions&   opts,
-                       std::string&            errorOut)
+    // -------------------------------------------------------------------------
+    // C++ API wrapper (thin, ABI-stable)
+    // -------------------------------------------------------------------------
+    std::vector<std::uint8_t> compile(const frontend::Module& module,
+                                      LLGOArch     arch,
+                                      LLGOFormat   fmt,
+                                      LLGOOptLevel opt,
+                                      const std::string& symbolName)
     {
-        CompileResult res = compile(module, opts);
-        if (!res.ok)
-        {
-            errorOut = res.error;
-            return false;
-        }
+        CompileResult r = compile_internal(
+            module,
+            static_cast<Arch>(arch),
+            static_cast<Format>(fmt),
+            static_cast<OptLevel>(opt),
+            symbolName
+        );
 
-        std::FILE* fp = std::fopen(path.c_str(), "wb");
-        if (fp == nullptr)
-        {
-            errorOut = "cannot open output file: " + path;
-            return false;
-        }
+        if (!r.ok)
+            return {};
 
-        std::size_t written = std::fwrite(res.objectData.data(),
-                                          1,
-                                          res.objectData.size(),
-                                          fp);
-        std::fclose(fp);
-
-        if (written != res.objectData.size())
-        {
-            errorOut = "short write to: " + path;
-            return false;
-        }
-
-        return true;
-    }
-
-    bool archFromString(const std::string& s, Arch& out)
-    {
-        if (s == "x86_64"  || s == "x86-64")  { out = Arch::X86_64;  return true; }
-        if (s == "arm64"   || s == "aarch64") { out = Arch::ARM64;   return true; }
-        if (s == "riscv64" || s == "riscv-64"){ out = Arch::RISCV64; return true; }
-        if (s == "riscv32" || s == "riscv-32"){ out = Arch::RISCV32; return true; }
-        return false;
-    }
-
-    bool formatFromString(const std::string& s, Format& out)
-    {
-        if (s == "elf")                 { out = Format::ELF;   return true; }
-        if (s == "pe" || s == "coff")   { out = Format::PE;    return true; }
-        if (s == "macho" || s == "mach-o") { out = Format::MachO; return true; }
-        return false;
-    }
-
-    inline bool optLevelFromInt(int n, OptLevel& out)
-    {
-        switch (n)
-        {
-            case 0: out = OptLevel::O0; return true;
-            case 1: out = OptLevel::O1; return true;
-            case 2: out = OptLevel::O2; return true;
-        }
-        return false;
-    }
-
-    const char* version()
-    {
-        return "LLGO 1.0.0";
-    }
-
-    [[maybe_unused]] void prevent_dce_full_pipeline()
-    {
-        static volatile int force_keep = 0;
-        if (force_keep == 0) return;
-
-        Arena arena;
-        Reallocator realloc(arena);
-        SONBuilder builder;
-        SONOptimizer opt;
-        Lowering lowering;
-        LinearIR lir;
-
-        codegen::ELF64Codegen      elf_x64;
-        codegen::ELFARM64Codegen   elf_arm64;
-        codegen::ELFRISCV64Codegen elf_rv64;
-        codegen::ELFRISCV32Codegen elf_rv32;
-
-        codegen::PE64Codegen      pe_x64;
-        codegen::PEARM64Codegen   pe_arm64;
-        codegen::PERISCV64Codegen pe_rv64;
-        codegen::PERISCV32Codegen pe_rv32;
-
-        codegen::MachOARM64Codegen  macho_arm64;
-        codegen::MachORISCV64Codegen macho_rv64;
-        codegen::MachORISCV32Codegen macho_rv32;
-
-        if (force_keep < 0)
-        {
-            codegen::ObjectFile obj;
-            elf_x64.generate({}, "", obj);
-            pe_x64.generate({}, "", obj);
-            macho_arm64.generate({}, "", obj);
-        }
+        return r.objectData;
     }
 
 } // namespace llgo
+
+// -----------------------------------------------------------------------------
+// C API implementation
+// -----------------------------------------------------------------------------
+extern "C"
+{
+
+// Opaque structs
+struct LLGOModule_   { llgo::frontend::Module mod; };
+struct LLGOFunction_ { llgo::frontend::Function fn; };
+struct LLGOBlock_    { llgo::frontend::Block blk; };
+struct LLGOResult_   { std::vector<std::uint8_t> data; };
+
+// --- Module API --------------------------------------------------------------
+
+LLGOModule* llgo_module_create(void)
+{
+    return new LLGOModule_();
+}
+
+void llgo_module_free(LLGOModule* m)
+{
+    delete m;
+}
+
+// --- Function API ------------------------------------------------------------
+
+LLGOFunction* llgo_function_create(LLGOModule* m,
+                                   LLGOType    ret,
+                                   const char* name)
+{
+    auto* f = new LLGOFunction_();
+    f->fn.name       = name;
+    f->fn.returnType = static_cast<llgo::frontend::Type>(ret);
+    m->mod.functions.push_back(f->fn);
+    return f;
+}
+
+void llgo_function_add_param(LLGOFunction* f,
+                             LLGOType      t,
+                             const char*   name)
+{
+    llgo::frontend::Value v;
+    v.type = static_cast<llgo::frontend::Type>(t);
+    v.name = name;
+    f->fn.params.push_back(v);
+}
+
+// --- Block API ---------------------------------------------------------------
+
+LLGOBlock* llgo_block_create(LLGOFunction* f, const char* name)
+{
+    auto* b = new LLGOBlock_();
+    b->blk.name = name;
+    f->fn.blocks.push_back(b->blk);
+    return b;
+}
+
+// --- Instruction API ---------------------------------------------------------
+
+void llgo_block_append_instr(LLGOBlock*    b,
+                             const char*   resultName,
+                             LLGOType      resultType,
+                             LLGOInstrKind kind,
+                             const char**  operandNames,
+                             std::size_t   numOperands,
+                             const char*   control,
+                             const char*   memory,
+                             const char*   targetTrue,
+                             const char*   targetFalse)
+{
+    llgo::frontend::Instr i;
+    i.kind       = static_cast<llgo::frontend::InstrKind>(kind);
+    i.resultType = static_cast<llgo::frontend::Type>(resultType);
+    i.resultName = resultName ? resultName : "";
+
+    for (std::size_t n = 0; n < numOperands; ++n)
+    {
+        llgo::frontend::Value v;
+        v.name = operandNames[n];
+        i.operands.push_back(v);
+    }
+
+    i.control     = control     ? control     : "";
+    i.memory      = memory      ? memory      : "";
+    i.targetTrue  = targetTrue  ? targetTrue  : "";
+    i.targetFalse = targetFalse ? targetFalse : "";
+
+    b->blk.instructions.push_back(i);
+}
+
+// --- Compilation API ---------------------------------------------------------
+
+LLGOResult* llgo_compile(const LLGOModule* m,
+                         const LLGOCompileOptions* opt)
+{
+    if (!m || !opt)
+        return nullptr;
+
+    llgo::CompileResult r = llgo::compile_internal(
+        m->mod,
+        static_cast<llgo::Arch>(opt->arch),
+        static_cast<llgo::Format>(opt->format),
+        static_cast<llgo::OptLevel>(opt->optLevel),
+        opt->symbolName ? opt->symbolName : "main"
+    );
+
+    if (!r.ok)
+        return nullptr;
+
+    auto* res = new LLGOResult_();
+    res->data = std::move(r.objectData);
+    return res;
+}
+
+std::size_t llgo_result_size(const LLGOResult* r)
+{
+    return r ? r->data.size() : 0;
+}
+
+const std::uint8_t* llgo_result_data(const LLGOResult* r)
+{
+    return r ? r->data.data() : nullptr;
+}
+
+void llgo_result_free(LLGOResult* r)
+{
+    delete r;
+}
+
+} // extern "C"
