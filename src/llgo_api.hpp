@@ -1,5 +1,6 @@
 /* LLGO Public API */
 
+#pragma once
 #include "llgo_api.hpp"
 #include "frontend.hpp"
 #include "llgo.cpp" // uses the existing C++ pipeline
