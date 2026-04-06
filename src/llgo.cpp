@@ -1,14 +1,10 @@
-/* LLGO – Unity Build Entry Point & Public API */
+/* LLGO – Unity Build Entry Point */
 
-// =============================================================================
-// Unity Build: all implementation headers are included here.
-// Every other .hpp is a self-contained header-only unit; this .cpp
-// is the sole translation unit that users compile.
-//
-// Build example (C++17):
-//   g++ -std=c++17 -O2 -Isrc -c src/llgo.cpp -o llgo.o
-//   ar rcs libllgo.a llgo.o
-// =============================================================================
+#include <cstdio>
+#include <cstdint>
+#include <string>
+#include <vector>
+#include <exception>
 
 // ---- Pipeline headers (order matters) ----------------------------------------
 #include "frontend.hpp"
@@ -41,15 +37,8 @@
 #include "codegen_pe_riscv32.hpp"
 #include "codegen_macho_riscv32.hpp"
 
-// =============================================================================
-// Public C++ API
-// =============================================================================
-
 namespace llgo
 {
-    // -------------------------------------------------------------------------
-    // Target architecture
-    // -------------------------------------------------------------------------
     enum class Arch
     {
         X86_64,
@@ -58,9 +47,6 @@ namespace llgo
         RISCV32
     };
 
-    // -------------------------------------------------------------------------
-    // Target object-file format
-    // -------------------------------------------------------------------------
     enum class Format
     {
         ELF,
@@ -68,105 +54,59 @@ namespace llgo
         MachO
     };
 
-    // -------------------------------------------------------------------------
-    // Optimisation level (mirrors common -O flags)
-    // -------------------------------------------------------------------------
     enum class OptLevel
     {
-        O0, // no optimisation
-        O1, // DCE + CSE (default)
-        O2  // O1 + constant folding + strength reduction
+        O0,
+        O1,
+        O2
     };
 
-    // -------------------------------------------------------------------------
-    // Compilation options
-    // -------------------------------------------------------------------------
     struct CompileOptions
     {
-        Arch      arch       = Arch::X86_64;
-        Format    fmt        = Format::ELF;
-        OptLevel  opt        = OptLevel::O1;
-        std::string symbolName = "main"; // exported function name
+        Arch        arch       = Arch::X86_64;
+        Format      fmt        = Format::ELF;
+        OptLevel    opt        = OptLevel::O1;
+        std::string symbolName = "main";
     };
 
-    // -------------------------------------------------------------------------
-    // Compile result
-    // -------------------------------------------------------------------------
     struct CompileResult
     {
-        bool                      ok      = false;
+        bool                      ok        = false;
         std::string               error;
-        std::vector<std::uint8_t> objectData; // raw bytes of the object file
+        std::vector<std::uint8_t> objectData;
     };
 
-    // =========================================================================
-    // llgo::compile()
-    //
-    // Main entry point.  Translates a frontend::Module through the full
-    // pipeline (SoN build → optimise → lower → alloc → codegen) and returns
-    // a ready-to-link object file in memory.
-    //
-    // Usage:
-    //   llgo::frontend::Module mod = /* build your AST/IR here */;
-    //   llgo::CompileOptions   opts;
-    //   opts.arch       = llgo::Arch::RISCV64;
-    //   opts.fmt        = llgo::Format::ELF;
-    //   opts.opt        = llgo::OptLevel::O2;
-    //   opts.symbolName = "my_func";
-    //   llgo::CompileResult res = llgo::compile(mod, opts);
-    //   if (!res.ok) { /* handle res.error */ }
-    //   // write res.objectData to a .o file or pass to a linker
-    // =========================================================================
     CompileResult compile(const frontend::Module& module,
-                                 const CompileOptions& opts = {})
+                          const CompileOptions&   opts)
     {
         CompileResult result;
 
         try
         {
-            // ------------------------------------------------------------------
-            // Stage 1: Build Sea-of-Nodes graph from frontend IR
-            // ------------------------------------------------------------------
             SONBuilder builder;
             builder.build(module);
-            Graph graph = builder.getGraph(); // value-copy so we can mutate
+            Graph graph = builder.getGraph();
 
-            // ------------------------------------------------------------------
-            // Stage 2: Optimise
-            // ------------------------------------------------------------------
             if (opts.opt != OptLevel::O0)
             {
                 SONOptimizer optimizer;
                 optimizer.run(graph);
             }
 
-            // ------------------------------------------------------------------
-            // Stage 3: Arena allocation (all subsequent work uses the arena)
-            // ------------------------------------------------------------------
             Arena arena;
-            (void)arena; // used implicitly by future arena-aware passes
+            (void)arena;
 
-            // ------------------------------------------------------------------
-            // Stage 4: Lower SoN graph → LinearIR
-            // ------------------------------------------------------------------
             LinearIR linearIR;
             Lowering lowering;
             lowering.run(graph, linearIR);
 
-            // ------------------------------------------------------------------
-            // Stage 5: Re-allocate / compact arena after lowering
-            // ------------------------------------------------------------------
             Reallocator realloc(arena);
             (void)realloc;
 
-            // ------------------------------------------------------------------
-            // Stage 6: Code generation → ObjectFile
-            // ------------------------------------------------------------------
             codegen::ObjectFile objFile;
 
             switch (opts.arch)
             {
-                // --- x86-64 ---
                 case Arch::X86_64:
                 {
                     switch (opts.fmt)
@@ -185,9 +125,6 @@ namespace llgo
                         }
                         case Format::MachO:
                         {
-                            // x86-64 Mach-O: reuse the ELF codegen path with
-                            // a Mach-O wrapper (not yet a separate file, so we
-                            // emit a PE stub here and flag it)
                             result.error =
                                 "x86-64 Mach-O not yet implemented; "
                                 "use ELF or PE for x86-64";
@@ -197,7 +134,6 @@ namespace llgo
                     break;
                 }
 
-                // --- ARM64 ---
                 case Arch::ARM64:
                 {
                     switch (opts.fmt)
@@ -224,7 +160,6 @@ namespace llgo
                     break;
                 }
 
-                // --- RISC-V 64 ---
                 case Arch::RISCV64:
                 {
                     switch (opts.fmt)
@@ -251,7 +186,6 @@ namespace llgo
                     break;
                 }
 
-                // --- RISC-V 32 ---
                 case Arch::RISCV32:
                 {
                     switch (opts.fmt)
@@ -296,16 +230,10 @@ namespace llgo
         return result;
     }
 
-    // =========================================================================
-    // llgo::compileToFile()
-    //
-    // Convenience wrapper: compile and write the object file to disk.
-    // Returns true on success, false + error message on failure.
-    // =========================================================================
     bool compileToFile(const frontend::Module& module,
-                              const std::string& path,
-                              const CompileOptions& opts,
-                              std::string& errorOut)
+                       const std::string&      path,
+                       const CompileOptions&   opts,
+                       std::string&            errorOut)
     {
         CompileResult res = compile(module, opts);
         if (!res.ok)
@@ -336,25 +264,19 @@ namespace llgo
         return true;
     }
 
-    // =========================================================================
-    // llgo::archFromString() / llgo::formatFromString()
-    //
-    // Parse CLI-style strings into enum values.
-    // Returns false if the string is unrecognised.
-    // =========================================================================
     bool archFromString(const std::string& s, Arch& out)
     {
-        if (s == "x86_64"  || s == "x86-64")   { out = Arch::X86_64;  return true; }
-        if (s == "arm64"   || s == "aarch64")   { out = Arch::ARM64;   return true; }
-        if (s == "riscv64" || s == "riscv-64")  { out = Arch::RISCV64; return true; }
-        if (s == "riscv32" || s == "riscv-32")  { out = Arch::RISCV32; return true; }
+        if (s == "x86_64"  || s == "x86-64")  { out = Arch::X86_64;  return true; }
+        if (s == "arm64"   || s == "aarch64") { out = Arch::ARM64;   return true; }
+        if (s == "riscv64" || s == "riscv-64"){ out = Arch::RISCV64; return true; }
+        if (s == "riscv32" || s == "riscv-32"){ out = Arch::RISCV32; return true; }
         return false;
     }
 
     bool formatFromString(const std::string& s, Format& out)
     {
-        if (s == "elf")   { out = Format::ELF;   return true; }
-        if (s == "pe"   || s == "coff") { out = Format::PE;    return true; }
+        if (s == "elf")                 { out = Format::ELF;   return true; }
+        if (s == "pe" || s == "coff")   { out = Format::PE;    return true; }
         if (s == "macho" || s == "mach-o") { out = Format::MachO; return true; }
         return false;
     }
@@ -370,59 +292,44 @@ namespace llgo
         return false;
     }
 
-    // =========================================================================
-    // llgo::version()
-    //
-    // Returns a human-readable version string.
-    // =========================================================================
     const char* version()
     {
         return "LLGO 1.0.0";
     }
 
-/**
- * Prevents aggressive Dead Code Elimination (DCE) by Clang/LLVM.
- * In an Unity-Build symbols often get removed, if they are 
- * not visible inside the translation unit.
- */
-[[maybe_unused]] void prevent_dce_full_pipeline() 
-{
-    static volatile int force_keep = 0;
-    if (force_keep == 0) return;
-
-    // 1. Core and middle-end
-    llgo::Arena arena;
-    llgo::Reallocator realloc(arena);
-    llgo::SONBuilder builder;
-    llgo::SONOptimizer opt;
-    llgo::Lowering lowering;
-    llgo::LinearIR lir;
-    
-    // 2. ELF codegens
-    llgo::codegen::ELF64Codegen elf_x64;
-    llgo::codegen::ELFARM64Codegen elf_arm64;
-    llgo::codegen::ELFRISCV64Codegen elf_rv64;
-    llgo::codegen::ELFRISCV32Codegen elf_rv32;
-
-    // 3. PE/COFF codegens
-    llgo::codegen::PE64Codegen pe_x64;
-    llgo::codegen::PEARM64Codegen pe_arm64;
-    llgo::codegen::PERISCV64Codegen pe_rv64;
-    llgo::codegen::PERISCV32Codegen pe_rv32;
-
-    // 4. Mach-O codegens
-    llgo::codegen::MachOARM64Codegen macho_arm64;
-    llgo::codegen::MachORISCV64Codegen macho_rv64;
-    llgo::codegen::MachORISCV32Codegen macho_rv32;
-
-    // Dummy-use to prevent compiler warnings
-    if (force_keep < 0) 
+    [[maybe_unused]] void prevent_dce_full_pipeline()
     {
-        llgo::codegen::ObjectFile obj;
-        elf_x64.generate({}, "", obj);
-        pe_x64.generate({}, "", obj);
-        macho_arm64.generate({}, "", obj);
+        static volatile int force_keep = 0;
+        if (force_keep == 0) return;
+
+        Arena arena;
+        Reallocator realloc(arena);
+        SONBuilder builder;
+        SONOptimizer opt;
+        Lowering lowering;
+        LinearIR lir;
+
+        codegen::ELF64Codegen      elf_x64;
+        codegen::ELFARM64Codegen   elf_arm64;
+        codegen::ELFRISCV64Codegen elf_rv64;
+        codegen::ELFRISCV32Codegen elf_rv32;
+
+        codegen::PE64Codegen      pe_x64;
+        codegen::PEARM64Codegen   pe_arm64;
+        codegen::PERISCV64Codegen pe_rv64;
+        codegen::PERISCV32Codegen pe_rv32;
+
+        codegen::MachOARM64Codegen  macho_arm64;
+        codegen::MachORISCV64Codegen macho_rv64;
+        codegen::MachORISCV32Codegen macho_rv32;
+
+        if (force_keep < 0)
+        {
+            codegen::ObjectFile obj;
+            elf_x64.generate({}, "", obj);
+            pe_x64.generate({}, "", obj);
+            macho_arm64.generate({}, "", obj);
+        }
     }
-}
 
 } // namespace llgo
