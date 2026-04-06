@@ -88,6 +88,7 @@ namespace llgo
             {
                 if (!param.name.empty())
                 {
+                    // Kompatibel: Params weiter auf Start mappen
                     m_valueMap[param.name] = pStart;
                 }
             }
@@ -145,24 +146,34 @@ namespace llgo
             }
 
             // Memory edge
+            Node* pMemInput = nullptr;
+
             if (!instr.memory.empty())
             {
-                Node* pMem = resolveMemory(instr.memory);
-                if (pMem != nullptr)
-                {
-                    pNode->inputs.push_back(pMem);
-                }
-                m_pCurrentMemory = pNode;
+                pMemInput = resolveMemory(instr.memory);
             }
             else if (instr.kind == frontend::InstrKind::Load ||
                      instr.kind == frontend::InstrKind::Store ||
                      instr.kind == frontend::InstrKind::Call)
             {
-                if (m_pCurrentMemory != nullptr)
-                {
-                    pNode->inputs.push_back(m_pCurrentMemory);
-                }
+                pMemInput = m_pCurrentMemory;
+            }
+
+            if (pMemInput != nullptr)
+            {
+                pNode->inputs.push_back(pMemInput);
+            }
+
+            if (instr.kind == frontend::InstrKind::Load ||
+                instr.kind == frontend::InstrKind::Store ||
+                instr.kind == frontend::InstrKind::Call)
+            {
                 m_pCurrentMemory = pNode;
+
+                if (!instr.resultName.empty())
+                {
+                    m_memoryMap[instr.resultName] = pNode;
+                }
             }
 
             // Branch targets
