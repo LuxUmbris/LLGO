@@ -9,5 +9,5 @@ if(NOT MSVC)
     set(CMAKE_CXX_ARCHIVE_FINISH "")
 endif()
 
-add_library(llgo STATIC src/llgo.cpp)
+add_library(llgo STATIC src/llgo_api.hpp)
 target_include_directories(llgo PUBLIC src)
