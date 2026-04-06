@@ -1,280 +1,262 @@
-# LLGO
+# LLGO – Low Level Graph Optimizer
 
-A compact, dependency-free compiler backend library — everything LLVM offers for generating native object files, packaged as a single **static library** built from one `.cpp` file.
+LLGO is a compact, self‑contained compiler pipeline designed for embedding, JIT‑style execution, ahead‑of‑time code generation, and language‑agnostic IR experimentation.  
+It transforms a simple SSA‑based frontend IR into an optimized Sea‑of‑Nodes graph, lowers it into a linear instruction stream, allocates registers, and finally emits real object files for multiple architectures and formats.
 
-You translate your AST or IR into **LLGO Frontend IR**, hand it to the library, and get back raw object-file bytes ready to write to disk and link.
-
----
-
-## Features
-
-| | |
-|---|---|
-| **Architectures** | x86-64 · ARM64 · RISC-V 64 · RISC-V 32 |
-| **Object formats** | ELF · PE/COFF · Mach-O |
-| **Optimiser** | Constant folding · Strength reduction · Algebraic identities · CSE · DCE |
-| **Build** | Unity build — one `.cpp`, zero dependencies beyond a C++17 compiler |
-| **API** | C API (`llgo_compile`) + C++ convenience overload (`llgo::compile`) |
-
-### Supported target matrix
-
-|              | ELF | PE/COFF | Mach-O |
-|:-------------|:---:|:-------:|:------:|
-| **x86-64**   | ✓   | ✓       |        |
-| **ARM64**    | ✓   | ✓       | ✓      |
-| **RISC-V 64**| ✓   | ✓       | ✓      |
-| **RISC-V 32**| ✓   | ✓       | ✓      |
+LLGO is implemented as a unity build: all implementation headers are included into a single translation unit (llgo.cpp).  
+This makes LLGO extremely easy to integrate — one .cpp file compiles into a static library.
 
 ---
 
-## Repository layout
+# Why LLGO?
 
-```
-src/
-├── llgo.cpp                  # Unity build entry point + C/C++ API implementation
-├── llgo_api.hpp              # Public API (C + C++)
-│
-├── frontend.hpp              # Frontend IR: Module / Function / Block / Instr
-├── son_builder.hpp           # Frontend IR → Sea-of-Nodes graph
-├── optimizer.hpp             # SoN optimiser (fold · strength-reduce · CSE · DCE)
-├── alloc.hpp                 # Arch-agnostic arena allocator
-├── realloc.hpp               # In-place arena reallocator
-├── lowering.hpp              # SoN graph → linear IR
-│
-├── codegen_x86_64_def.hpp    # x86-64 assembler + register allocator + IR lowering
-├── codegen_arm64_def.hpp     # ARM64  assembler + register allocator + IR lowering
-├── codegen_riscv64_def.hpp   # RISC-V 64 assembler + register allocator + IR lowering
-├── codegen_riscv32_def.hpp   # RISC-V 32 assembler + register allocator + IR lowering
-│
-├── codegen_elf_x86_64.hpp    # ELF-64  x86-64  object file emitter
-├── codegen_pe_x86_64.hpp     # PE/COFF x86-64  object file emitter
-├── codegen_elf_arm64.hpp     # ELF-64  ARM64   object file emitter
-├── codegen_pe_arm64.hpp      # PE/COFF ARM64   object file emitter
-├── codegen_macho_arm64.hpp   # Mach-O  ARM64   object file emitter
-├── codegen_elf_risc64.hpp    # ELF-64  RISC-V 64 object file emitter
-├── codegen_pe_riscv64.hpp    # PE/COFF RISC-V 64 object file emitter
-├── codegen_macho_riscv64.hpp # Mach-O  RISC-V 64 object file emitter
-├── codegen_elf_riscv32.hpp   # ELF-32  RISC-V 32 object file emitter
-├── codegen_pe_riscv32.hpp    # PE/COFF RISC-V 32 object file emitter
-├── codegen_macho_riscv32.hpp # Mach-O  RISC-V 32 object file emitter
-│
-└── test_llgo.cpp             # Test suite (31 cases)
-```
+Most compiler backends are either:
 
----
+• **too large** (LLVM, GCC)  
+• **too limited** (toy compilers, educational projects)  
+• **too opinionated** (language‑specific JITs)  
+• **too heavy to embed** (runtime dependencies, dynamic linking, platform quirks)
 
-## Build
+LLGO exists to fill the gap:
 
-### CMake (recommended)
+### 1. A real backend without the weight of LLVM  
+LLGO emits **real object files** (ELF, PE/COFF, Mach‑O) for multiple architectures.  
+No IR bitcode, no JIT‑only mode, no runtime dependencies.
 
-```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-# run tests
-cd build && ctest --output-on-failure
-```
+### 2. Fully self‑contained  
+Everything is header‑only except the unity build entry point.  
+No external libraries. No platform‑specific hacks.
 
-### Manual
+### 3. Language‑agnostic  
+You can feed LLGO any IR that maps to its minimal SSA‑style frontend.  
+It does not assume C, C++, Rust, Go, or any language semantics.
 
-```bash
-g++ -std=c++17 -O2 -Isrc -c src/llgo.cpp -o llgo.o
-ar rcs libllgo.a llgo.o
-```
+### 4. Designed for embedding  
+LLGO is ideal for:
 
-Requirements: any C++17 compiler (GCC ≥ 7, Clang ≥ 5, MSVC 19.14+). No third-party dependencies.
+• custom languages  
+• DSLs  
+• shader compilers  
+• JIT engines  
+• build systems  
+• code generation tools  
+• educational compilers  
+• static analysis tools that need object output
+
+### 5. Predictable, explicit, transparent  
+LLGO avoids magic.  
+Every stage is explicit:
+
+• Sea‑of‑Nodes graph  
+• Optimizer  
+• Lowering  
+• Register allocation  
+• Codegen
+
+You can inspect or modify any stage.
+
+### 6. Stable C API  
+The C API is ABI‑safe and works from any language.  
+No STL types cross the boundary.
 
 ---
 
-## Compile pipeline
+# Developer Guide
 
-```
-Your AST / IR
-     │
-     ▼
-Frontend IR          (frontend.hpp)
-  Module → Function → Block → Instr
-     │
-     ▼
-Sea-of-Nodes graph   (son_builder.hpp)
-     │
-     ▼
-Optimiser            (optimizer.hpp)
-  • Constant folding          (3 + 4  →  7)
-  • Strength reduction        (x * 8  →  x << 3)
-  • Algebraic identities      (x - x  →  0)
-  • Common subexpression elim
-  • Dead code elimination
-     │
-     ▼
-Arena alloc / realloc  (alloc.hpp, realloc.hpp)
-     │
-     ▼
-Linear IR lowering   (lowering.hpp)
-  topological sort → block assignment → linear instruction list
-     │
-     ▼
-Code generation      (codegen_<arch>_def.hpp)
-  greedy register allocation → instruction selection → branch patching
-     │
-     ▼
-Object file emitter  (codegen_<fmt>_<arch>.hpp)
-  ELF / PE / Mach-O  →  raw bytes
+This section explains how to use LLGO as a developer:  
+how to build IR, how to compile, how to debug, and how to integrate LLGO into your toolchain.
+
+---
+
+## 1. Building a Module
+
+A module contains functions.  
+A function contains blocks.  
+A block contains instructions.
+
+### Example: Creating a module
+
+```C++
+LLGOModule* m = llgo_module_create();
 ```
 
 ---
 
-## Usage
+## 2. Creating a Function
 
-### C++ API
+Functions have a return type and a name.
 
-Include `llgo_api.hpp` and link against `libllgo.a`.
-
-```cpp
-#include "llgo_api.hpp"
-#include "frontend.hpp"
-
-// 1. Build frontend IR
-llgo::frontend::Module mod;
-llgo::frontend::Function fn;
-fn.name       = "add";
-fn.returnType = llgo::frontend::Type::i64;
-
-llgo::frontend::Value a, b;
-a.type = b.type = llgo::frontend::Type::i64;
-a.name = "a"; b.name = "b";
-fn.params = { a, b };
-
-llgo::frontend::Block blk;
-blk.name = "entry";
-
-// %sum = add a, b
-llgo::frontend::Instr addInstr;
-addInstr.kind       = llgo::frontend::InstrKind::Add;
-addInstr.resultType = llgo::frontend::Type::i64;
-addInstr.resultName = "%sum";
-addInstr.operands   = { a, b };
-blk.instructions.push_back(addInstr);
-
-// ret %sum
-llgo::frontend::Instr retInstr;
-retInstr.kind       = llgo::frontend::InstrKind::Ret;
-retInstr.resultType = llgo::frontend::Type::i64;
-llgo::frontend::Value rv; rv.name = "%sum"; rv.type = llgo::frontend::Type::i64;
-retInstr.operands   = { rv };
-blk.instructions.push_back(retInstr);
-
-fn.blocks.push_back(blk);
-mod.functions.push_back(fn);
-
-// 2. Compile → ELF x86-64 at O1
-std::vector<std::uint8_t> obj =
-    llgo::compile(mod,
-                  LLGO_ARCH_X86_64,
-                  LLGO_FMT_ELF,
-                  LLGO_OPT_O1,
-                  "add");
-
-// 3. Write to disk
-std::ofstream f("add.o", std::ios::binary);
-f.write(reinterpret_cast<const char*>(obj.data()), obj.size());
+```C++
+LLGOFunction* f = llgo_function_create(m, LLGO_TYPE_I64, "main");  
+llgo_function_add_param(f, LLGO_TYPE_I64, "x");  
 ```
+
+---
+
+## 3. Creating Blocks
+
+Blocks represent basic blocks in SSA form.
+
+```C++
+LLGOBlock* entry = llgo_block_create(f, "entry");  
+```
+
+---
+
+## 4. Emitting Instructions
+
+Instructions are appended to blocks.  
+Each instruction has:
+
+• result name  
+• result type  
+• instruction kind  
+• operand names  
+• control dependency  
+• memory dependency  
+• branch targets (if applicable)
+
+### Example: x + 1
+
+```C++
+const char* ops_add[] = { "x", "1" };  
+llgo_block_append_instr(entry,  
+    "tmp",  
+    LLGO_TYPE_I64,  
+    LLGO_INSTR_ADD,  
+    ops_add, 2,  
+    "", "", "", ""  
+);  
+```
+
+### Example: return tmp
+
+```C++
+const char* ops_ret[] = { "tmp" };  
+llgo_block_append_instr(entry,  
+    "",  
+    LLGO_TYPE_I64,  
+    LLGO_INSTR_RET,  
+    ops_ret, 1,  
+    "", "", "", ""  
+);  
+```
+
+---
+
+## 5. Compiling a Module
 
 ### C API
 
-```c
-#include "llgo_api.hpp"
+```C
+LLGOCompileOptions opt = {  
+    LLGO_ARCH_X86_64,  
+    LLGO_FMT_ELF,  
+    LLGO_OPT_O2,  
+    "main"  
+};  
 
-LLGOModule*   mod = llgo_module_create();
-LLGOFunction* fn  = llgo_function_create(mod, LLGO_TYPE_I64, "my_func");
-LLGOBlock*    blk = llgo_block_create(fn, "entry");
+LLGOResult* r = llgo_compile(m, &opt);  
+```
 
-// ConstInt 42
-llgo_block_append_instr(blk, "42", LLGO_TYPE_I64, LLGO_INSTR_CONST_INT,
-                        NULL, 0, "", "", "", "");
+### C++ API
 
-// ret 42
-const char* ops[] = { "42" };
-llgo_block_append_instr(blk, "", LLGO_TYPE_I64, LLGO_INSTR_RET,
-                        ops, 1, "", "", "", "");
+```C++
+llgo::CompileOptions opt;  
+opt.arch = llgo::Arch::RISCV64;  
+opt.fmt  = llgo::Format::ELF;  
+opt.opt  = llgo::OptLevel::O2;  
+opt.symbolName = "main";  
 
-LLGOCompileOptions opts = {
-    .arch       = LLGO_ARCH_RISCV64,
-    .format     = LLGO_FMT_ELF,
-    .optLevel   = LLGO_OPT_O1,
-    .symbolName = "my_func"
-};
-
-LLGOResult* result = llgo_compile(mod, &opts);
-if (result) {
-    // use llgo_result_data(result) / llgo_result_size(result)
-    llgo_result_free(result);
-}
-llgo_module_free(mod);  // also frees fn and blk
+auto res = llgo::compile(mod, opt);  
 ```
 
 ---
 
-## Frontend IR reference
+## 6. Writing the Object File
 
-### Types
-
-| Enum | Width | Description |
-|------|-------|-------------|
-| `i2` … `i256` | 2–256 bit | Signed integers |
-| `u1` … `u256` | 1–256 bit | Unsigned integers |
-| `const_u8` | — | String literal (`const u8[]`) |
-| `boolean` | — | Logical value |
-| `arr` | metadata | Array (size in `TypeInfo`) |
-| `ptr` | metadata | Pointer (element kind in `TypeInfo`) |
-
-### Instructions
-
-| Kind | Operands | Description |
-|------|----------|-------------|
-| `Add` `Sub` `Mul` `Div` `Mod` | lhs, rhs | Arithmetic |
-| `Icmp` `Fcmp` | lhs, rhs | Integer / float compare |
-| `Load` | ptr | Load from memory |
-| `Store` | val, ptr | Store to memory |
-| `Gep` | base, index… | Get element pointer |
-| `Phi` | val₀, val₁, … | SSA Φ-node |
-| `Br` | — | Unconditional branch (`target` field) |
-| `CondBr` | cond | Conditional branch (`targetTrue`/`targetFalse`) |
-| `Ret` | val? | Return |
-| `Call` | fn, arg… | Function call |
-| `ConstInt` | — | Integer constant (value in `resultName`) |
-| `ConstFloat` | — | Float constant |
-| `ConstString` | — | String constant |
-| `Undef` | — | Undefined value |
+```C++
+FILE* fp = fopen("out.o", "wb");  
+fwrite(llgo_result_data(r), 1, llgo_result_size(r), fp);  
+fclose(fp);  
+```
 
 ---
 
-## Optimiser passes
+## 7. Debugging Tips
 
-| Pass | Level | Description |
-|------|-------|-------------|
-| Constant folding | O1+ | Evaluates pure arithmetic on constant inputs at compile time |
-| Strength reduction | O1+ | Replaces `x * 2ⁿ` with `x << n`, removes `x ± 0`, `x * 1` |
-| Algebraic identities | O1+ | `x - x → 0` and similar |
-| CSE | O1+ | Deduplicates identical pure subexpressions |
-| DCE | O1+ | Removes nodes not contributing to any side-effectful root |
-| Unreachable removal | O1+ | Prunes nodes unreachable from the start node |
-| Trivial merge compression | O1+ | Collapses single-predecessor merge nodes |
-| Double pass | O2 | All O1 passes run twice to catch cascading opportunities |
+### Inspect the Sea‑of‑Nodes graph  
+Insert debug prints in SONBuilder or SONOptimizer to visualize nodes.
+
+### Inspect Linear IR  
+Dump LinearIR before codegen to verify lowering.
+
+### Inspect generated machine code  
+Use:
+
+• objdump  
+• llvm-objdump  
+• radare2  
+• Hopper  
+• IDA  
+• Binary Ninja
+
+### Check alignment and relocations  
+Especially important for RISC‑V and ARM64.
+
+### Validate object files  
+Use:
+
+```
+readelf -a out.o  
+objdump -d out.o  
+llvm-readobj -all out.o  
+```
 
 ---
 
-## Design notes
+## 8. Integration Patterns
 
-**Unity build.** All source files are headers (for the include graph); `llgo.cpp` is the single compilation unit. This gives fast builds, optimal inlining, and trivial integration — just add one `.cpp` to your project.
+### Embedding in a language compiler  
+Map your AST → LLGO frontend::Module → llgo_compile → object file → system linker.
 
-**Sea-of-Nodes IR.** Values are nodes in a directed graph; control and memory dependencies are explicit edges. This representation makes optimisation passes simple and correct by construction — no def-use chains to maintain separately.
+### Embedding in a JIT  
+Generate IR on the fly, compile to object bytes, load into memory, link, execute.
 
-**Arch-agnostic arena.** `alloc.hpp` uses 16-byte alignment universally, so the same allocator works on x86-64, ARM64, and both RISC-V widths without `#ifdef`.
+### Using LLGO as a backend for DSLs  
+Perfect for shader languages, math DSLs, robotics DSLs, etc.
 
-**Greedy register allocator.** Each codegen backend uses a simple linear-scan greedy allocator over the caller-save register set. It is intentionally straightforward — good enough for a backend library, trivially replaceable with a full linear-scan or graph-colouring allocator if needed.
+### Using LLGO in build systems  
+Generate small object files programmatically.
 
 ---
 
-## License
+# Supported Architectures & Formats
 
-See [LICENSE](LICENSE).
+### x86‑64  
+• ELF64  
+• PE/COFF  
+• Mach‑O (not implemented)
+
+### ARM64  
+• ELF64  
+• PE/COFF  
+• Mach‑O
+
+### RISC‑V 64  
+• ELF64  
+• PE/COFF  
+• Mach‑O
+
+### RISC‑V 32  
+• ELF32  
+• PE/COFF  
+• Mach‑O
+
+---
+
+# License
+
+LLGO is licensed under the **Mozilla Public License 2.0**.
+
+---
