@@ -43,7 +43,7 @@ namespace llgo
 {
 
 // ============================================================================
-// INTERNAL PIPELINE ONLY — NO PUBLIC API HERE
+// INTERNAL PIPELINE IMPLEMENTATION
 // ============================================================================
 
 CompileResult compile(const frontend::Module& module,
@@ -67,7 +67,6 @@ CompileResult compile(const frontend::Module& module,
 
         // Stage 3: Arena
         Arena arena;
-        (void)arena;
 
         // Stage 4: Lowering
         LinearIR linearIR;
@@ -76,7 +75,6 @@ CompileResult compile(const frontend::Module& module,
 
         // Stage 5: Reallocator
         Reallocator realloc(arena);
-        (void)realloc;
 
         // Stage 6: Codegen
         codegen::ObjectFile objFile;
@@ -101,8 +99,7 @@ CompileResult compile(const frontend::Module& module,
                     }
                     case Format::MachO:
                     {
-                        result.error =
-                            "x86-64 Mach-O not yet implemented; use ELF or PE";
+                        result.error = "x86-64 Mach-O not implemented";
                         return result;
                     }
                 }
@@ -189,17 +186,17 @@ CompileResult compile(const frontend::Module& module,
         }
 
         result.objectData = std::move(objFile.data);
-        result.ok         = true;
+        result.ok = true;
     }
     catch (const std::exception& e)
     {
-        result.ok    = false;
+        result.ok = false;
         result.error = e.what();
     }
     catch (...)
     {
-        result.ok    = false;
-        result.error = "unknown error during compilation";
+        result.ok = false;
+        result.error = "unknown error";
     }
 
     return result;
@@ -224,10 +221,9 @@ bool compileToFile(const frontend::Module& module,
         return false;
     }
 
-    std::size_t written = std::fwrite(res.objectData.data(),
-                                      1,
-                                      res.objectData.size(),
-                                      fp);
+    std::size_t written =
+        std::fwrite(res.objectData.data(), 1, res.objectData.size(), fp);
+
     std::fclose(fp);
 
     if (written != res.objectData.size())
@@ -239,4 +235,202 @@ bool compileToFile(const frontend::Module& module,
     return true;
 }
 
+bool archFromString(const std::string& s, Arch& out)
+{
+    if (s == "x86_64" || s == "x86-64") { out = Arch::X86_64; return true; }
+    if (s == "arm64"  || s == "aarch64") { out = Arch::ARM64; return true; }
+    if (s == "riscv64") { out = Arch::RISCV64; return true; }
+    if (s == "riscv32") { out = Arch::RISCV32; return true; }
+    return false;
+}
+
+bool formatFromString(const std::string& s, Format& out)
+{
+    if (s == "elf")   { out = Format::ELF; return true; }
+    if (s == "pe")    { out = Format::PE; return true; }
+    if (s == "macho") { out = Format::MachO; return true; }
+    return false;
+}
+
+bool optLevelFromInt(int n, OptLevel& out)
+{
+    switch (n)
+    {
+        case 0: out = OptLevel::O0; return true;
+        case 1: out = OptLevel::O1; return true;
+        case 2: out = OptLevel::O2; return true;
+    }
+    return false;
+}
+
+const char* version()
+{
+    return "LLGO 1.0.0";
+}
+
 } // namespace llgo
+
+// ============================================================================
+// C API IMPLEMENTATION
+// ============================================================================
+
+extern "C" {
+
+LLGOResult llgo_compile_c(const void* modulePtr,
+                          const LLGOCompileOptions* opts)
+{
+    LLGOResult out{};
+    out.ok = 0;
+    out.error = nullptr;
+    out.data = nullptr;
+    out.size = 0;
+
+    if (!modulePtr || !opts) {
+        out.error = strdup("invalid arguments");
+        return out;
+    }
+
+    const llgo::frontend::Module* mod =
+        reinterpret_cast<const llgo::frontend::Module*>(modulePtr);
+
+    llgo::CompileOptions cppOpts;
+    cppOpts.symbolName = opts->symbolName ? opts->symbolName : "main";
+
+    cppOpts.arch =
+        (opts->arch == LLGO_ARCH_X86_64) ? llgo::Arch::X86_64 :
+        (opts->arch == LLGO_ARCH_ARM64)  ? llgo::Arch::ARM64 :
+        (opts->arch == LLGO_ARCH_RISCV64)? llgo::Arch::RISCV64 :
+                                           llgo::Arch::RISCV32;
+
+    cppOpts.fmt =
+        (opts->format == LLGO_FMT_ELF)   ? llgo::Format::ELF :
+        (opts->format == LLGO_FMT_PE)    ? llgo::Format::PE :
+                                           llgo::Format::MachO;
+
+    cppOpts.opt =
+        (opts->optLevel == LLGO_OPT_O0) ? llgo::OptLevel::O0 :
+        (opts->optLevel == LLGO_OPT_O1) ? llgo::OptLevel::O1 :
+                                          llgo::OptLevel::O2;
+
+    llgo::CompileResult res = llgo::compile(*mod, cppOpts);
+
+    if (!res.ok) {
+        out.error = strdup(res.error.c_str());
+        return out;
+    }
+
+    out.ok = 1;
+    out.size = res.objectData.size();
+    out.data = (uint8_t*)malloc(out.size);
+    memcpy(out.data, res.objectData.data(), out.size);
+
+    return out;
+}
+
+int llgo_compile_to_file_c(const void* modulePtr,
+                           const char* path,
+                           const LLGOCompileOptions* opts,
+                           const char** errorOut)
+{
+    if (errorOut) *errorOut = nullptr;
+
+    if (!modulePtr || !path || !opts) {
+        if (errorOut) *errorOut = "invalid arguments";
+        return 0;
+    }
+
+    const llgo::frontend::Module* mod =
+        reinterpret_cast<const llgo::frontend::Module*>(modulePtr);
+
+    llgo::CompileOptions cppOpts;
+    cppOpts.symbolName = opts->symbolName ? opts->symbolName : "main";
+
+    cppOpts.arch =
+        (opts->arch == LLGO_ARCH_X86_64) ? llgo::Arch::X86_64 :
+        (opts->arch == LLGO_ARCH_ARM64)  ? llgo::Arch::ARM64 :
+        (opts->arch == LLGO_ARCH_RISCV64)? llgo::Arch::RISCV64 :
+                                           llgo::Arch::RISCV32;
+
+    cppOpts.fmt =
+        (opts->format == LLGO_FMT_ELF)   ? llgo::Format::ELF :
+        (opts->format == LLGO_FMT_PE)    ? llgo::Format::PE :
+                                           llgo::Format::MachO;
+
+    cppOpts.opt =
+        (opts->optLevel == LLGO_OPT_O0) ? llgo::OptLevel::O0 :
+        (opts->optLevel == LLGO_OPT_O1) ? llgo::OptLevel::O1 :
+                                          llgo::OptLevel::O2;
+
+    std::string err;
+    bool ok = llgo::compileToFile(*mod, path, cppOpts, err);
+
+    if (!ok) {
+        if (errorOut) *errorOut = strdup(err.c_str());
+        return 0;
+    }
+
+    return 1;
+}
+
+void llgo_result_free_c(LLGOResult* r)
+{
+    if (!r) return;
+    if (r->error) free(r->error);
+    if (r->data)  free(r->data);
+    r->error = nullptr;
+    r->data  = nullptr;
+    r->size  = 0;
+    r->ok    = 0;
+}
+
+int llgo_arch_from_string_c(const char* s, LLGOArch* out)
+{
+    if (!s || !out) return 0;
+    std::string str(s);
+    llgo::Arch a;
+    if (!llgo::archFromString(str, a)) return 0;
+
+    *out =
+        (a == llgo::Arch::X86_64) ? LLGO_ARCH_X86_64 :
+        (a == llgo::Arch::ARM64)  ? LLGO_ARCH_ARM64 :
+        (a == llgo::Arch::RISCV64)? LLGO_ARCH_RISCV64 :
+                                    LLGO_ARCH_RISCV32;
+
+    return 1;
+}
+
+int llgo_format_from_string_c(const char* s, LLGOFormat* out)
+{
+    if (!s || !out) return 0;
+    std::string str(s);
+    llgo::Format f;
+    if (!llgo::formatFromString(str, f)) return 0;
+
+    *out =
+        (f == llgo::Format::ELF)   ? LLGO_FMT_ELF :
+        (f == llgo::Format::PE)    ? LLGO_FMT_PE :
+                                     LLGO_FMT_MACHO;
+
+    return 1;
+}
+
+int llgo_opt_level_from_int_c(int n, LLGOOptLevel* out)
+{
+    if (!out) return 0;
+    llgo::OptLevel o;
+    if (!llgo::optLevelFromInt(n, o)) return 0;
+
+    *out =
+        (o == llgo::OptLevel::O0) ? LLGO_OPT_O0 :
+        (o == llgo::OptLevel::O1) ? LLGO_OPT_O1 :
+                                    LLGO_OPT_O2;
+
+    return 1;
+}
+
+const char* llgo_version_c(void)
+{
+    return llgo::version();
+}
+
+} // extern "C"
