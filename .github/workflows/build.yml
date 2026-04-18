@@ -1,0 +1,51 @@
+name: Build Static Library
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: >
+          cmake -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_CXX_COMPILER=clang++
+          -DCMAKE_C_COMPILER=clang
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Verify Library Size and Type
+        shell: bash
+        run: |
+          echo "Suche nach Library-Dateien..."
+          # Findet .a oder .lib Dateien und gibt Details aus
+          FILES=$(find build -name "*.a" -o -name "*.lib")
+          for f in $FILES; do
+            echo "Datei gefunden: $f"
+            ls -lh "$f"
+            # Prüfen, ob es ein Thin Archive ist (nur Linux/macOS)
+            if [[ "$f" == *.a ]]; then
+              head -c 7 "$f" | grep -q "thin" && echo "WARNUNG: Dies ist ein Thin Archive!" || echo "Check: Valides Archiv."
+            fi
+          done
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libllgo-${{ matrix.os }}
+          path: |
+            build/libllgo.a
+            build/llgo.lib
+            build/Release/llgo.lib
+          if-no-files-found: error
